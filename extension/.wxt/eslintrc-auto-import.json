@@ -1,0 +1,27 @@
+{
+  "globals": {
+    "ContentScriptContext": true,
+    "InvalidMatchPattern": true,
+    "MatchPattern": true,
+    "browser": true,
+    "createIframeUi": true,
+    "createIntegratedUi": true,
+    "createShadowRootUi": true,
+    "defineAppConfig": true,
+    "defineBackground": true,
+    "defineConfig": true,
+    "defineContentScript": true,
+    "defineUnlistedScript": true,
+    "defineWxtPlugin": true,
+    "detectSite": true,
+    "extractCandidateQuestions": true,
+    "extractQuestionsApi": true,
+    "fakeBrowser": true,
+    "isInterviewExperience": true,
+    "normalizeQuestion": true,
+    "renderInterviewUI": true,
+    "renderQuestionList": true,
+    "storage": true,
+    "useAppConfig": true
+  }
+}
