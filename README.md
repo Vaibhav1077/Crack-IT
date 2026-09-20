@@ -1,71 +1,19 @@
 # Crack-IT ⚡
+> **AI-Powered Interview Preparation Platform**
 
-**Stop memorizing. Start performing.**
-
-Crack-IT is an AI-powered mock interview platform I built to solve a real problem — most interview prep tools give you a list of questions, but nobody actually *talks* to you, challenges your answers, or tells you why your solution is suboptimal. Crack-IT does all of that.
-
-It simulates a full interview loop: DSA coding rounds, System Design discussions, Resume-based deep dives, and HR behavioral sessions — all driven by AI agents that respond like a real interviewer would.
+Crack-IT is a full-stack platform that simulates real technical interviews using AI agents. It covers DSA coding rounds, System Design, Resume-based deep dives, and HR behavioral sessions — with real-time feedback, just like a real interviewer.
 
 ---
 
-## Why I Built This
+## 🚀 Overview
 
-I was preparing for placements and realized that solving LeetCode alone wasn't enough. I needed to practice *explaining* my thought process, handling follow-up questions, and performing under pressure. No tool did that well, so I built one.
-
----
-
-## What It Does
-
-### 🧩 DSA Round
-Not just "solve this problem". The interview happens in three phases:
-- **Intuition** — explain your approach and complexity before writing any code
-- **Coding** — write your solution in a VS Code-style Monaco editor
-- **Evaluation** — AI reviews edge cases, complexity, and code quality
-
-### 📄 Resume-Based Round
-Upload your PDF resume. The AI reads it and asks questions specifically about your projects, tech stack, and experience — not generic questions pulled from a database.
-
-### 🏗️ System Design Round
-High-level architecture discussions. The AI acts as a senior engineer asking you to design scalable systems, pushing back on your decisions and exploring trade-offs.
-
-### 🤝 HR Round
-Behavioral questions using the STAR method. Practices culture fit, communication, and situational judgment.
-
-### 📊 Performance Report
-After every session, you get a detailed breakdown — what you did well, where you struggled, and what to work on next.
-
-### 🔐 Secure API Key Wallet
-You bring your own LLM keys (Groq, Gemini). They are AES-256 encrypted before being stored in the database and only decrypted in-memory during active sessions. Your keys stay yours.
-
-### 🌐 Browser Extension
-Extracts questions directly from LeetCode, GeeksForGeeks, Medium, and Reddit so you can practice from real problems without copy-pasting.
+Unlike static question banks, Crack-IT adapts to your resume, specific job targets, and real-time performance. It uses specialized AI agents and WebSockets for a high-fidelity interview experience.
 
 ---
 
-## Tech Stack
+## 🏗️ Architecture
 
-### Frontend
-- React 19 + Vite
-- Tailwind CSS v4
-- Framer Motion (animations)
-- Monaco Editor (coding rounds)
-- Clerk (authentication)
-- Recharts (performance analytics)
-- React Webcam (interview simulation environment)
-
-### Backend
-- Node.js + Express
-- MongoDB + Mongoose
-- WebSockets (`ws`) for real-time communication
-- LangChain + LangGraph for AI agent orchestration
-- Groq API (LLaMA models) — fast inference
-- Google Gemini API — multimodal AI
-- Judge0 — sandboxed code execution
-- pdf-parse — resume parsing
-
----
-
-## Architecture
+Crack-IT follows a Full-Stack MERN architecture, enhanced with LangChain/LangGraph for AI orchestration and WebSockets for low-latency real-time interactions.
 
 ```
 Client (React) ──── REST API ────► Express Server ──► MongoDB
@@ -76,24 +24,77 @@ Client (React) ──── REST API ────► Express Server ──► Mo
                          Groq/LLaMA   Gemini API   Judge0
 ```
 
-### AI Agents
+### 🔐 Security — API Key Wallet
+One of Crack-IT's core features is the **API Key Wallet**:
+- Users provide their own LLM API keys (Gemini, Groq, etc.)
+- Keys are **AES-256 encrypted** before being stored in MongoDB
+- Keys are only decrypted **in-memory** during an active session using a secure `requestContext` pattern
+- Your credentials remain completely private and protected
 
-The backend uses a multi-agent system where each agent is a specialist:
+---
+
+## 💻 Tech Stack
+
+### Frontend
+- **React 19** + **Vite** — fast modern frontend
+- **Tailwind CSS v4** + **Framer Motion** — styling and animations
+- **Monaco Editor** — VS Code-style coding experience for DSA rounds
+- **Clerk** — secure authentication and social login
+- **Recharts** — performance analytics and charts
+- **React Webcam** — simulate the real interview environment
+
+### Backend
+- **Node.js** + **Express** — REST API server
+- **MongoDB** + **Mongoose** — database and schemas
+- **WebSockets (`ws`)** — real-time chat, code, and voice interactions
+- **LangChain** + **LangGraph** — AI agent orchestration
+- **Groq API** — fast LLaMA model inference
+- **Google Gemini API** — multimodal AI capabilities
+- **Judge0** — sandboxed code execution
+- **pdf-parse** — resume PDF parsing
+
+---
+
+## 🤖 AI Agents
+
+Crack-IT uses a multi-agent system where each agent is a specialist:
 
 | Agent | Role |
 |-------|------|
-| Interview Plan Agent | Reads resume, generates personalized question plan |
-| DSA Agent | Creates coding problems by difficulty |
-| DSA Interview Agent | Evaluates code quality, complexity, edge cases |
-| System Design Agent | Drives architectural discussions |
+| Interview Plan Agent | Reads your resume and generates a personalized question plan |
+| DSA Agent | Creates coding problems by difficulty level |
+| DSA Interview Agent | Evaluates code for quality, complexity, and edge cases |
+| System Design Agent | Drives high-level architectural discussions |
 | HR Agent | Handles behavioral and situational questions |
-| STT Correction Agent | Fixes speech-to-text transcription errors |
-| Report Agent | Compiles final performance dashboard |
+| STT Correction Agent | Fixes speech-to-text transcription errors using AI |
+| Report Agent | Compiles post-interview performance dashboard |
 | Code Generator Agent | Generates test cases and solution scaffolds |
 
 ---
 
-## Project Structure
+## 🎯 Interview Rounds
+
+### 1. Resume-Based Round
+The system parses your PDF resume and generates questions that drill into your specific projects, technologies, and achievements — not generic questions from a database.
+
+### 2. DSA Specialist Round
+A structured three-phase coding interview:
+- **Intuition Phase** — explain your approach and time complexity before writing code
+- **Coding Phase** — write your solution in Monaco editor with real-time feedback
+- **Evaluation Phase** — AI analyzes your solution for edge cases and optimizations
+
+### 3. System Design Round
+Architectural challenges with AI acting as a senior engineer — pushing back on your decisions, exploring trade-offs, and discussing scalability.
+
+### 4. HR & Behavioral Round
+Simulates standard HR screenings focusing on behavioral questions, past experiences, and future goals using the STAR method.
+
+### 5. Interactive Follow-ups
+The AI asks follow-up questions if your answer is vague — mimicking real conversational interview flow.
+
+---
+
+## 📁 Project Structure
 
 ```
 Crack-IT/
@@ -103,7 +104,7 @@ Crack-IT/
 │   │   │   ├── InterviewSimulation/   # Core interview UI
 │   │   │   ├── InterviewRoom/         # Live session room
 │   │   │   ├── ResumeUpload/          # Resume upload flow
-│   │   │   ├── InterviewHistory/      # Past sessions
+│   │   │   ├── InterviewHistory/      # Past sessions list
 │   │   │   └── Report/                # Post-interview analysis
 │   │   ├── components/                # Navbar, ProtectedRoute, etc.
 │   │   ├── hooks/                     # useInterviewSocket, etc.
@@ -121,88 +122,80 @@ Crack-IT/
 │
 └── extension/         # WXT-based browser extension
     ├── entrypoints/   # Popup, content, background scripts
-    ├── extractors/    # Site-specific question extractors
+    ├── extractors/    # LeetCode, GFG, Medium, Reddit extractors
     └── utils/         # API bridge, site detection
 ```
 
 ---
 
-## Getting Started
+## 🛠️ Getting Started
 
-### 1. Prerequisites
+### Prerequisites
 - Node.js v18+
-- MongoDB Atlas account (free tier is fine)
-- Clerk account (free)
-- Groq API key — [console.groq.com](https://console.groq.com) (free)
-- Gemini API key — [aistudio.google.com](https://aistudio.google.com) (free)
+- MongoDB Atlas account (free tier works)
+- Clerk account (free) — [clerk.com](https://clerk.com)
+- Groq API key (free) — [console.groq.com](https://console.groq.com)
+- Gemini API key (free) — [aistudio.google.com](https://aistudio.google.com)
 
-### 2. Clone & Install
+### Installation
 
 ```bash
+# Clone the repo
 git clone https://github.com/Vaibhav1077/Crack-IT.git
 cd Crack-IT
+
+# Install all dependencies
 npm install
 cd client && npm install && cd ..
 cd server && npm install && cd ..
 ```
 
-### 3. Environment Setup
+### Environment Variables
 
-```bash
-# Server — copy and fill values
-cp server/.env.example server/.env
-
-# Client — copy and fill values
-cp client/.env.example client/.env
+Create `server/.env`:
 ```
-
-**server/.env keys needed:**
-```
-MONGODB_URI=
-CLERK_SECRET_KEY=
-CLERK_PUBLISHABLE_KEY=
-ENCRYPTION_SECRET=     # 64 hex chars
-GEMINI_API_KEY=
-GROQ_API_KEY=
-JUDGE0_API_KEY=
+MONGODB_URI=your_mongodb_connection_string
+CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+ENCRYPTION_SECRET=your_64_char_hex_string
+GEMINI_API_KEY=your_gemini_api_key
+GROQ_API_KEY=your_groq_api_key
+JUDGE0_API_KEY=your_rapidapi_key
 JUDGE0_API_URL=https://judge0-ce.p.rapidapi.com
 ```
 
-**client/.env keys needed:**
+Create `client/.env`:
 ```
-VITE_CLERK_PUBLISHABLE_KEY=
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 VITE_API_URL=http://localhost:5000
 ```
 
-### 4. Run
+### Run
 
 ```bash
+# Runs both client and server concurrently
 npm run dev
 ```
 
-Opens:
 - Frontend → http://localhost:5173
 - Backend → http://localhost:5000
 
 ---
 
-## Roadmap
+## 📈 Roadmap
 
 - [x] DSA, HR, System Design, Resume rounds
 - [x] AES-256 encrypted API key wallet
 - [x] Real-time WebSocket interview flow
-- [x] Browser extension for LeetCode/GFG
-- [ ] Multi-language code execution (beyond Python/JS/Java)
+- [x] Browser extension for LeetCode and GFG
+- [x] Performance reports and analytics
+- [ ] Multi-language code execution support
 - [ ] DSA weak spot heatmap
 - [ ] Peer-to-peer mock interview mode
 - [ ] Mobile responsive interview UI
 
 ---
 
-## License
+## 📄 License
 
-MIT — use it, fork it, build on it.
-
----
-
-*Built by Vaibhav — because I needed this tool and it didn't exist.*
+MIT License — free to use, modify, and distribute.
