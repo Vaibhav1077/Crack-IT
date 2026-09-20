@@ -1,6 +1,9 @@
 # env
 .env
-.env.*
+.env.local
+.env.*.local
+# allow example files
+!.env.example
 
 # Logs
 logs
