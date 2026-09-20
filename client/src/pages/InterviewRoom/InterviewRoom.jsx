@@ -1,0 +1,736 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuthFetch } from '../../auth/useAuthFetch';
+import { motion, AnimatePresence } from 'framer-motion';
+import useInterviewSocket from '../../hooks/useInterviewSocket';
+import useGeminiVoice from '../InterviewSimulation/hooks/useGeminiVoice';
+import useSpeechRecognition from '../InterviewSimulation/hooks/useSpeechRecognition';
+import UnifiedInput from '../../components/UnifiedInput';
+import CodeEditor from '../InterviewSimulation/components/CodeEditor';
+import QuestionPanel from '../InterviewSimulation/components/QuestionPanel';
+import { generateCodeTemplate } from '../../lib/codeTemplate';
+import { API_BASE_URL } from '../../config';
+
+// ─── Theme Definitions ──────────────────────────────────────────────────────
+const THEMES = {
+  dsa: {
+    borderRing: 'border-cyan-400/20',
+    borderBase: 'border-cyan-400',
+    glow: 'shadow-[0_0_40px_rgba(34,211,238,0.4)]',
+    bgActive: 'bg-gradient-to-br from-cyan-900/80 to-slate-900',
+    bgPulse: 'bg-cyan-400',
+    text: 'text-cyan-400',
+    textMuted: 'text-cyan-500/80',
+    bgLight: 'bg-cyan-500/10',
+    borderLight: 'border-cyan-500/40',
+    ambientGlow: 'from-cyan-900/10'
+  },
+  system_design: {
+    borderRing: 'border-amber-400/20',
+    borderBase: 'border-amber-400',
+    glow: 'shadow-[0_0_40px_rgba(251,191,36,0.4)]',
+    bgActive: 'bg-gradient-to-br from-amber-900/80 to-slate-900',
+    bgPulse: 'bg-amber-400',
+    text: 'text-amber-400',
+    textMuted: 'text-amber-500/80',
+    bgLight: 'bg-amber-500/10',
+    borderLight: 'border-amber-500/40',
+    ambientGlow: 'from-amber-900/10'
+  },
+  hr: {
+    borderRing: 'border-emerald-400/20',
+    borderBase: 'border-emerald-400',
+    glow: 'shadow-[0_0_40px_rgba(52,211,153,0.4)]',
+    bgActive: 'bg-gradient-to-br from-emerald-900/80 to-slate-900',
+    bgPulse: 'bg-emerald-400',
+    text: 'text-emerald-400',
+    textMuted: 'text-emerald-500/80',
+    bgLight: 'bg-emerald-500/10',
+    borderLight: 'border-emerald-500/40',
+    ambientGlow: 'from-emerald-900/10'
+  },
+  resume: {
+    borderRing: 'border-indigo-400/20',
+    borderBase: 'border-indigo-400',
+    glow: 'shadow-[0_0_40px_rgba(99,102,241,0.4)]',
+    bgActive: 'bg-gradient-to-br from-indigo-900/80 to-slate-900',
+    bgPulse: 'bg-indigo-400',
+    text: 'text-indigo-400',
+    textMuted: 'text-indigo-500/80',
+    bgLight: 'bg-indigo-500/10',
+    borderLight: 'border-indigo-500/40',
+    ambientGlow: 'from-indigo-900/10'
+  }
+};
+
+// ─── Animated AI Avatar ─────────────────────────────────────────────────────
+
+const AIAvatar = ({ isSpeaking, connectionState, theme }) => (
+  <div className="relative flex items-center justify-center">
+    {isSpeaking && (
+      <>
+        <div className={`absolute w-40 h-40 rounded-full border ${theme.borderRing} animate-ping`} style={{ animationDuration: '1.5s' }} />
+        <div className={`absolute w-32 h-32 rounded-full border ${theme.borderRing} animate-ping`} style={{ animationDuration: '1.2s', animationDelay: '0.3s' }} />
+      </>
+    )}
+    <div className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 ${isSpeaking
+      ? `border-4 ${theme.borderBase} ${theme.glow} ${theme.bgActive}`
+      : 'border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900'
+      }`}>
+      <span className="text-5xl select-none">🤖</span>
+      {isSpeaking && (
+        <div className="absolute bottom-1 right-1 flex gap-[2px] items-end h-4">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className={`w-[3px] ${theme.bgPulse} rounded-full animate-pulse`}
+              style={{ height: `${6 + Math.sin(i) * 6}px`, animationDelay: `${i * 0.1}s`, animationDuration: '0.6s' }} />
+          ))}
+        </div>
+      )}
+    </div>
+    <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-slate-900 ${connectionState === 'connected' ? 'bg-emerald-400' :
+      connectionState === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-500'
+      }`} />
+  </div>
+);
+
+
+// ─── Progress Bar ────────────────────────────────────────────────────────────
+
+const ProgressBar = ({ current, total }) => {
+  const pct = total > 0 ? (current / total) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-neutral-400 font-mono whitespace-nowrap">Q {current} / {total}</span>
+      <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+        <div className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-neutral-500 font-mono">{Math.round(pct)}%</span>
+    </div>
+  );
+};
+
+// ─── Transcript Bubble ───────────────────────────────────────────────────────
+
+const Bubble = ({ role, text, corrected, theme }) => {
+  const isAi = role === 'interviewer' || role === 'assistant';
+  const messageRole = role === 'candidate' ? 'candidate' : role;
+  return (
+    <div className={`flex ${isAi ? 'justify-start' : 'justify-end'} mb-2`}>
+      <div className={`max-w-[85%] sm:max-w-[80%] px-5 py-3.5 rounded-3xl text-[14px] leading-relaxed shadow-sm backdrop-blur-sm transition-all ${isAi
+        ? 'bg-[#1e2330]/90 border border-[#2a3040] text-slate-200 rounded-tl-sm'
+        : 'bg-emerald-900/40 border border-emerald-800/50 text-emerald-100 rounded-tr-sm'
+        }`}>
+        <div className="flex items-center gap-2 mb-1.5">
+           <span className={`text-[10px] font-bold uppercase tracking-wider ${isAi ? theme.textMuted : 'text-emerald-500/80'}`}>
+             {isAi ? 'AI Interviewer' : 'You'}
+           </span>
+        </div>
+        <div className="whitespace-pre-wrap">{text}</div>
+        {corrected && (
+          <span className="block text-[10px] text-emerald-500/50 mt-2 italic font-medium flex items-center gap-1">
+             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+             Verified Transcript
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
+const InterviewRoom = () => {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+  const authFetch = useAuthFetch();
+
+  const [transcript, setTranscript] = useState([]);
+  const [isListening, setIsListening] = useState(false);
+  const [phase, setPhase] = useState('connecting');
+  const [pendingAnswer, setPendingAnswer] = useState('');
+  const [isChatMinimized, setIsChatMinimized] = useState(true);
+  const [popoutMessage, setPopoutMessage] = useState(null);
+  const [roundType, setRoundType] = useState('dsa'); // default fallback
+
+  // Fetch session meta (to get theme/round_type)
+  useEffect(() => {
+    if (sessionId) {
+      authFetch(`${API_BASE_URL}/api/sessions/${sessionId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.round_type) {
+            setRoundType(data.round_type);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [sessionId, authFetch]);
+
+  const activeTheme = THEMES[roundType] || THEMES.dsa;
+
+  useEffect(() => {
+    if (transcript.length > 0 && isChatMinimized) {
+      const lastMsg = transcript[transcript.length - 1];
+      setPopoutMessage({
+        role: lastMsg.role,
+        text: lastMsg.text,
+      });
+      const timer = setTimeout(() => setPopoutMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [transcript, isChatMinimized]);
+  
+  // ── Code Editor State ──
+  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [code, setCode] = useState('// Write your solution here...');
+  const [language, setLanguage] = useState('JavaScript');
+  const [execResult, setExecResult] = useState(null);
+  const [isEvaluatingCode, setIsEvaluatingCode] = useState(false);
+  
+  const transcriptEndRef = useRef(null);
+  const sendAnswerRef = useRef(null);
+  const listeningRef = useRef(false);
+  const wsRef = useRef(null); // reference to the sendAnswer + signalSpeechDone functions
+
+  // Called when AI finishes a speech turn — signal the server
+  const handleSpeechDone = useCallback(() => {
+    wsRef.current?.signalSpeechDone?.();
+  }, []);
+
+  // Voice output — single Gemini voice with queue
+  const { speak, stop, isSpeaking } = useGeminiVoice(handleSpeechDone);
+
+  // Called when AI sends a message to speak
+  const handleAiMessage = useCallback((text, msgPhase, questionObj) => {
+    setPhase(msgPhase || 'questioning');
+    setTranscript(prev => [...prev, { role: 'interviewer', text }]);
+    speak(text);
+    if (questionObj) {
+      setCurrentQuestion(questionObj);
+    }
+  }, [speak]);
+
+  // Code Template Autopopulation & Local Storage Recovery
+  const lastQuestionIdRef = useRef(null);
+  const lastLanguageRef = useRef(language);
+
+  // Helper to get local storage key
+  const getStorageKey = (qId, lang) => {
+    return `crackit_code_${sessionId}_${roundType}_${qId}_${lang}`;
+  };
+
+  useEffect(() => {
+    if (currentQuestion && currentQuestion.type === 'Coding') {
+      const qId = currentQuestion._id || currentQuestion.question_id;
+      const isNewQuestion = qId !== lastQuestionIdRef.current;
+      const isNewLanguage = language !== lastLanguageRef.current;
+
+      // If it's a new question OR language changed, update the code
+      if (isNewQuestion || isNewLanguage) {
+        // Only clear test results on new question
+        if (isNewQuestion) {
+            setExecResult(null);
+        }
+
+        const storageKey = getStorageKey(qId, language);
+        const savedCode = localStorage.getItem(storageKey);
+
+        if (savedCode) {
+            setCode(savedCode);
+        } else {
+            // Generate the new template for the selected language
+            setCode(generateCodeTemplate(currentQuestion, language));
+        }
+        
+        lastQuestionIdRef.current = qId;
+        lastLanguageRef.current = language;
+      }
+    }
+  }, [currentQuestion, language, sessionId, roundType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save code to local storage when code changes
+  useEffect(() => {
+    if (currentQuestion && currentQuestion.type === 'Coding' && code) {
+      const qId = currentQuestion._id || currentQuestion.question_id;
+      const storageKey = getStorageKey(qId, language);
+      localStorage.setItem(storageKey, code);
+    }
+  }, [code, currentQuestion, language, sessionId, roundType]);
+
+  // Called when interview is done
+  const handleInterviewComplete = useCallback((sid) => {
+    stop();
+    setTimeout(() => navigate(`/report/${sid}`), 3000);
+  }, [navigate, stop]);
+
+  const handleAnswerCorrected = useCallback((original, corrected) => {
+    console.log('[INTERVIEW] Answer corrected:', { original, corrected });
+    setTranscript(prev => {
+      const newTranscript = [...prev];
+      // Find the last message from the candidate and update its text
+      for (let i = newTranscript.length - 1; i >= 0; i--) {
+        if (newTranscript[i].role === 'candidate') {
+          newTranscript[i].text = corrected;
+          newTranscript[i].corrected = true;
+          break;
+        }
+      }
+      return newTranscript;
+    });
+  }, []);
+
+  const handleSessionRestored = useCallback((historyStr, restoredPhase, qObj) => {
+    if (historyStr) setTranscript(historyStr);
+    if (restoredPhase) setPhase(restoredPhase);
+    if (qObj) setCurrentQuestion(qObj);
+  }, []);
+
+  // WebSocket connection
+  const { connectionState, progress, sendAnswer, signalSpeechDone, reconnect } = useInterviewSocket(
+    sessionId,
+    handleAiMessage,
+    handleInterviewComplete,
+    handleAnswerCorrected,
+    handleSessionRestored
+  );
+
+  // Keep functions accessible via ref
+  useEffect(() => {
+    sendAnswerRef.current = sendAnswer;
+    wsRef.current = { signalSpeechDone };
+  }, [sendAnswer, signalSpeechDone]);
+
+  // Speech recognition
+  const handleTranscript = useCallback((text) => {
+    setPendingAnswer(text);
+  }, []);
+
+  const { volume, startListening, stopListening, resetTranscript } = useSpeechRecognition(handleTranscript);
+
+  // Auto-start mic ONLY when AI stops speaking and we're in an active interview phase
+  useEffect(() => {
+    const speakingPhases = ['questioning', 'followup'];
+    if (!isSpeaking && connectionState === 'connected' && speakingPhases.includes(phase)) {
+      const timer = setTimeout(() => {
+        if (!listeningRef.current) {
+          resetTranscript();
+          setPendingAnswer('');
+          startListening();
+          listeningRef.current = true;
+          setIsListening(true);
+        }
+      }, 600);
+      return () => clearTimeout(timer);
+    } else if (isSpeaking && listeningRef.current) {
+      stopListening();
+      listeningRef.current = false;
+      setIsListening(false);
+    }
+  }, [isSpeaking, connectionState, phase]);
+
+  // Auto-submit after 3s silence
+  const silenceTimerRef = useRef(null);
+  useEffect(() => {
+    if (pendingAnswer && isListening) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        if (pendingAnswer.trim().length >= 2 && listeningRef.current) {
+          submitAnswer(pendingAnswer);
+        }
+      }, 3000);
+    }
+    return () => clearTimeout(silenceTimerRef.current);
+  }, [pendingAnswer]);
+
+  const submitAnswer = useCallback((text, codeContent = code, isFinal = false) => {
+    if (!text || !text.trim()) return;
+    stopListening();
+    listeningRef.current = false;
+    setIsListening(false);
+
+    // Show the raw text in transcript (server will correct and we update on answer_corrected event)
+    setTranscript(prev => [...prev, { role: 'candidate', text, corrected: false }]);
+    setPendingAnswer('');
+    resetTranscript();
+
+    sendAnswerRef.current?.(text, codeContent, isFinal, language);
+  }, [stopListening, resetTranscript, code, language]);
+
+  // Handle Code Execution to backend compiler container structure
+  const runCode = async () => {
+    if (!sessionId || !currentQuestion) return;
+    setIsEvaluatingCode(true);
+    setExecResult(null);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/interviews/session/${sessionId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question_id: currentQuestion._id || currentQuestion.question_id,
+          code,
+          language
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to execute code");
+      const data = await res.json();
+      setExecResult(data);
+    } catch (err) {
+      console.error('[INTERVIEW] ❌ Code execution failed:', err);
+      setExecResult({ passed: 0, failed: 1, total: 1, log: "Execution failed to reach server." });
+    }
+    setIsEvaluatingCode(false);
+  };
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (!isChatMinimized) {
+        // Use a small delay to ensure the animation/render is complete
+        const timer = setTimeout(() => {
+            transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+        return () => clearTimeout(timer);
+    }
+  }, [transcript, isChatMinimized]);
+
+  const isCodingArea = (roundType === 'dsa' || currentQuestion?.type === 'Coding') && !!currentQuestion;
+
+  return (
+    <div className="h-screen bg-[#0a0a0a] text-slate-300 flex flex-col font-sans overflow-hidden">
+      {/* Header */}
+      <header className="border-b border-white/5 bg-[#121212]/80 backdrop-blur-md px-6 py-3 flex items-center justify-between z-10 flex-shrink-0 shadow-lg">
+        <div className="flex items-center gap-3 w-1/3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center text-white text-sm font-bold shadow-md shadow-emerald-500/20">C</div>
+          <span className="font-semibold text-slate-200 tracking-tight">CrackIt Interview</span>
+        </div>
+        
+        <div className="flex-1 flex justify-center">
+            <ProgressBar current={progress.current} total={progress.total} />
+        </div>
+
+        <div className="flex items-center gap-4 w-1/3 justify-end">
+          <div className={`flex items-center gap-2.5 text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-300 ${
+            connectionState === 'connected' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' :
+            connectionState === 'connecting' ? 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-400' : 
+            'bg-red-500/10 border border-red-500/20 text-red-400'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400' : connectionState === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-500'}`} />
+            <span className="capitalize">{connectionState}</span>
+            {(connectionState === 'disconnected' || connectionState === 'error') && (
+              <button 
+                onClick={reconnect}
+                className="ml-1 px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-[10px] uppercase font-bold tracking-tighter transition-colors"
+                title="Manually retry connection"
+              >
+                Reconnect
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main content */}
+      {isCodingArea ? (
+        // ─── CODING ROUND (LEETCODE UI) ────────────────────────────────────────────────────────────
+        <div className="flex-1 flex overflow-hidden p-2 gap-2 bg-[#000000] min-h-0 relative">
+          
+          {/* Left: Question Panel (scrollable) */}
+          <div className="w-1/2 flex flex-col bg-[#1e1e1e] rounded-xl border border-white/5 overflow-hidden shadow-2xl">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+               <QuestionPanel question={currentQuestion} />
+            </div>
+          </div>
+
+          {/* Right: Code Editor */}
+          <div className="w-1/2 flex flex-col bg-[#1e1e1e] rounded-xl border border-white/5 overflow-hidden shadow-2xl">
+             <CodeEditor
+               code={code}
+               language={language}
+               onLanguageChange={(newLang) => setLanguage(newLang)}
+               onCodeChange={setCode}
+               onRunCode={runCode}
+               onSubmit={() => submitAnswer("I have completed the implementation. Please review my solution.", code, true)}
+               isEvaluating={isEvaluatingCode}
+               execResult={execResult}
+             />
+          </div>
+
+          {/* Floating AI Chat Window - Fixed at bottom right */}
+          <div className="absolute bottom-6 left-6 z-50">
+             <AnimatePresence mode="wait">
+               {isChatMinimized ? (
+                  // Minimized Circle UI
+                  <motion.div 
+                     key="circle"
+                     initial={{ scale: 0, opacity: 0 }}
+                     animate={{ scale: 1, opacity: 1 }}
+                     exit={{ scale: 0, opacity: 0 }}
+                     transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                     className="w-16 h-16 flex items-center justify-center relative hover:bg-white/5 transition-colors rounded-full bg-[#0f111a] backdrop-blur-xl shadow-[0_8px_32px_rgba(34,211,238,0.2)] border border-white/10 cursor-pointer"
+                     onClick={() => {
+                        setIsChatMinimized(false);
+                        setPopoutMessage(null);
+                     }}
+                  >
+                     <span className="text-3xl relative z-10 pointer-events-none drop-shadow-lg">🤖</span>
+                     {isSpeaking && (
+                        <div className={`absolute inset-0 rounded-full border-4 ${activeTheme.borderRing} animate-ping opacity-50 pointer-events-none`} />
+                     )}
+                     {isListening && (
+                        <div className="absolute inset-0 rounded-full border-4 border-emerald-400 animate-pulse opacity-50 pointer-events-none" />
+                     )}
+                     {/* Popout bubble */}
+                     <AnimatePresence>
+                       {popoutMessage && (
+                         <motion.div
+                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                           animate={{ opacity: 1, y: 0, scale: 1 }}
+                           exit={{ opacity: 0, y: 5, scale: 0.95 }}
+                           transition={{ duration: 0.3 }}
+                           className="absolute bottom-[115%] left-0 w-64 p-3 bg-slate-800/95 backdrop-blur-md border border-slate-700/50 rounded-2xl text-xs text-slate-200 shadow-2xl pointer-events-none z-[60]"
+                         >
+                           <div className={`font-bold mb-1.5 uppercase tracking-wider text-[10px] ${popoutMessage.role === 'interviewer' ? activeTheme.text : 'text-emerald-400'} opacity-90`}>
+                              {popoutMessage.role === 'interviewer' ? 'AI Interviewer' : 'You'}
+                           </div>
+                           <div className="line-clamp-4 leading-relaxed whitespace-pre-wrap">{popoutMessage.text}</div>
+                           
+                           {/* Tip arrow */}
+                           <div className="absolute -bottom-1.5 left-8 w-3 h-3 bg-slate-800/95 border-r border-b border-slate-700/50 transform rotate-45" />
+                         </motion.div>
+                       )}
+                     </AnimatePresence>
+                  </motion.div>
+               ) : (
+                  // Full Chat Window
+                  <motion.div 
+                     key="chat"
+                     initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                     animate={{ opacity: 1, y: 0, scale: 1 }}
+                     exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                     transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                     style={{ transformOrigin: 'bottom left' }}
+                     className="w-[340px] h-[460px] flex flex-col overflow-hidden bg-[#0f111a] backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 rounded-2xl" 
+                  >
+                    {/* Chat Header */}
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-900/50 to-slate-800/50 border-b border-white/10 flex-shrink-0">
+                       <div className="flex items-center gap-3 pl-1">
+                           <div className="relative">
+                               <div className={`w-2 h-2 rounded-full ${isSpeaking ? `${activeTheme.bgPulse} animate-ping` : isListening ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                               <div className={`absolute inset-0 w-2 h-2 rounded-full ${isSpeaking ? activeTheme.bgPulse : isListening ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+                           </div>
+                           <div className="text-sm font-semibold tracking-wide text-slate-200 flex items-center gap-2">
+                               Interview Assistant
+                               {isSpeaking && <span className={`text-[10px] ${activeTheme.text} ${activeTheme.bgLight} px-1.5 py-0.5 rounded-full border ${activeTheme.borderRing}`}>Speaking...</span>}
+                               {isListening && <span className="text-[10px] text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full border border-emerald-400/20">Listening...</span>}
+                           </div>
+                       </div>
+                       <button className="text-slate-400 hover:text-white transition-colors w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10" 
+                          onClick={() => setIsChatMinimized(true)}
+                       >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                       </button>
+                    </div>
+
+                    <div className="flex-1 flex flex-col overflow-hidden bg-[#0f111a]/40">
+                       <div 
+                         className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 custom-scrollbar" 
+                         style={{ scrollBehavior: 'smooth' }}
+                       >
+                          {transcript.length === 0 && (
+                             <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-3">
+                                 <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-xl border border-slate-700">🎙️</div>
+                                 <div className="text-xs font-medium">Ready for conversation...</div>
+                             </div>
+                          )}
+                          {transcript.map((msg, i) => (
+                            <Bubble key={i} role={msg.role} text={msg.text} corrected={msg.corrected} theme={activeTheme} />
+                          ))}
+
+                          {/* Live interim transcript */}
+                          {pendingAnswer && isListening && (
+                            <div className="flex justify-end animate-fade-in-up">
+                              <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm text-[13px] bg-emerald-950/40 border border-emerald-800/30 text-emerald-300/80 italic shadow-sm">
+                                <span className="text-[9px] font-bold block mb-1 text-emerald-500/60 uppercase tracking-wider">You</span>
+                                {pendingAnswer}
+                                <span className="inline-block ml-1 w-1 h-3 bg-emerald-400 animate-pulse rounded-sm align-middle" />
+                              </div>
+                            </div>
+                          )}
+                          <div ref={transcriptEndRef} />
+                       </div>
+                       
+                       {/* Compact Status Bar */}
+                       <div className="shrink-0 border-t border-white/5 px-3 py-2.5">
+                          <div className="flex items-center gap-3">
+                             {/* Mini voice visualizer */}
+                             <div className="flex items-center gap-[2px] h-5 flex-shrink-0">
+                               {Array.from({ length: 8 }).map((_, i) => {
+                                 const h = isListening 
+                                   ? Math.max(3, (volume / 100) * 18 * (0.5 + 0.5 * Math.sin(i * 0.9)))
+                                   : 3;
+                                 return (
+                                   <div key={i} className={`w-[2px] rounded-full transition-all duration-75 ${
+                                     isListening ? 'bg-emerald-400' : isSpeaking ? 'bg-cyan-400' : 'bg-slate-700'
+                                   } ${isSpeaking && !isListening ? 'animate-pulse' : ''}`} 
+                                   style={{ 
+                                     height: isListening ? `${h}px` : isSpeaking ? `${6 + Math.sin(i * 1.2) * 8}px` : '3px',
+                                     animationDelay: isSpeaking ? `${i * 80}ms` : '0ms',
+                                     animationDuration: isSpeaking ? '0.6s' : '0.15s'
+                                   }} />
+                                 );
+                               })}
+                             </div>
+
+                             {/* Status text */}
+                             <div className="flex-1 min-w-0">
+                               {isSpeaking && !isListening && (
+                                 <div className="flex items-center gap-1.5">
+                                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                   <span className="text-[11px] text-cyan-400 font-medium truncate">AI Speaking...</span>
+                                 </div>
+                               )}
+                               {isListening && (
+                                 <div className="flex items-center gap-1.5">
+                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                   <span className="text-[11px] text-emerald-400 font-medium truncate">Listening...</span>
+                                 </div>
+                               )}
+                               {!isSpeaking && !isListening && (
+                                 <span className="text-[11px] text-slate-600 font-medium">Ready</span>
+                               )}
+                             </div>
+
+                             {/* Mic toggle button */}
+                             <button
+                               onClick={() => {
+                                 if (isListening) {
+                                   stopListening();
+                                   listeningRef.current = false;
+                                   setIsListening(false);
+                                 } else {
+                                   startListening(pendingAnswer);
+                                   listeningRef.current = true;
+                                   setIsListening(true);
+                                 }
+                               }}
+                               className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
+                                 isListening
+                                   ? 'bg-red-500/90 text-white shadow-lg shadow-red-900/30 hover:bg-red-400'
+                                   : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-slate-200'
+                               }`}
+                             >
+                               {isListening ? (
+                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" /></svg>
+                               ) : (
+                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                               )}
+                             </button>
+                          </div>
+                       </div>
+                    </div>
+                  </motion.div>
+               )}
+             </AnimatePresence>
+          </div>
+
+        </div>
+      ) : (
+        // ─── STANDARD ROUND (GENERIC UI) ────────────────────────────────────────────────────────
+        <div className="flex-1 flex overflow-hidden min-h-0 bg-gradient-to-br from-[#0a0a0a] to-[#14151a]">
+          
+          {/* Left: AI Context Panel */}
+          <div className="w-[320px] border-r border-white/5 flex flex-col items-center justify-center gap-10 p-8 flex-shrink-0 bg-black/20 backdrop-blur-md shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-10 relative">
+            <div className={`absolute inset-0 bg-gradient-to-b ${activeTheme.ambientGlow} to-transparent pointer-events-none`} />
+            <AIAvatar isSpeaking={isSpeaking} connectionState={connectionState} theme={activeTheme} />
+            <div className="text-center z-10">
+              <div className="text-base font-semibold text-slate-200 tracking-wide">AI Interviewer</div>
+              <div className="text-sm text-slate-500 mt-1.5 font-medium">
+                {isSpeaking ? 'Speaking...' : isListening ? 'Listening...' : 'Processing...'}
+              </div>
+            </div>
+            
+            {/* Status Pill */}
+            <div className={`px-5 py-2.5 rounded-full text-xs font-semibold tracking-wide border shadow-lg z-10 transition-all duration-300 ${isSpeaking ? `${activeTheme.borderLight} ${activeTheme.bgLight} ${activeTheme.text} shadow-lg` :
+              isListening ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-emerald-900/20' :
+                'border-white/10 bg-white/5 text-slate-400'
+              }`}>
+              <div className="flex items-center gap-2">
+                 {isSpeaking ? (
+                    <><span className="relative flex h-2 w-2"><span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${activeTheme.bgPulse} opacity-75`}></span><span className={`relative inline-flex rounded-full h-2 w-2 ${activeTheme.bgPulse}`}></span></span> AI Speaking</>
+                 ) : isListening ? (
+                    <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg> Mic Active</>
+                 ) : (
+                    <><span className="animate-spin w-3 h-3 border-2 border-slate-400/20 border-t-slate-400 rounded-full" /> Processing</>
+                 )}
+              </div>
+            </div>
+          </div>
+
+          {/* Center: Chat Window */}
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {/* Ambient Background Glow */}
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-tr ${activeTheme.ambientGlow} to-emerald-900/10 rounded-full blur-[120px] pointer-events-none`} />
+            
+            <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 z-10 custom-scrollbar" style={{ scrollBehavior: 'smooth' }}>
+              {transcript.length === 0 && (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center text-slate-500 bg-white/5 px-8 py-6 rounded-2xl border border-white/5 backdrop-blur-sm">
+                    <div className="text-4xl mb-4 opacity-80">🎙️</div>
+                    <div className="text-sm font-medium">Session initialized. Awaiting interviewer...</div>
+                  </div>
+                </div>
+              )}
+              {transcript.map((msg, i) => (
+                <Bubble key={i} role={msg.role} text={msg.text} corrected={msg.corrected} theme={activeTheme} />
+              ))}
+
+              {/* Live interim transcript */}
+              {pendingAnswer && isListening && (
+                <div className="flex justify-end animate-fade-in-up">
+                  <div className="max-w-[70%] px-5 py-4 rounded-3xl rounded-tr-sm text-sm bg-emerald-950/40 border border-emerald-800/30 text-emerald-300/80 italic shadow-sm backdrop-blur-sm">
+                    <span className="text-[10px] font-bold block mb-1.5 text-emerald-500/60 uppercase tracking-widest">You</span>
+                    {pendingAnswer}
+                    <span className="inline-block ml-1.5 w-1.5 h-3.5 bg-emerald-400 animate-pulse rounded-sm align-middle" />
+                  </div>
+                </div>
+              )}
+              <div ref={transcriptEndRef} />
+            </div>
+
+            {/* Bottom Input Area */}
+            <div className="border-t border-white/5 bg-[#0f111a]/80 backdrop-blur-xl flex-shrink-0 min-h-[160px] max-h-[40vh] w-full flex z-10 shadow-[0_-10px_40px_rgba(0,0,0,0.3)]">
+              <div className="w-full max-w-5xl mx-auto flex items-stretch">
+                  <UnifiedInput
+                    answer={pendingAnswer}
+                    onAnswerChange={setPendingAnswer}
+                    onSubmit={() => submitAnswer(pendingAnswer)}
+                    isEvaluating={false}
+                    isListening={isListening}
+                    isSpeechSupported={true}
+                    onToggleListening={(currentText = pendingAnswer) => {
+                      if (isListening) {
+                        stopListening();
+                        listeningRef.current = false;
+                        setIsListening(false);
+                      } else {
+                        startListening(currentText);
+                        listeningRef.current = true;
+                        setIsListening(true);
+                      }
+                    }}
+                    volume={volume}
+                    isSpeaking={isSpeaking}
+                  />
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default InterviewRoom;
