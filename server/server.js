@@ -15,7 +15,8 @@ const server = http.createServer(app);
 // app.use(cors());
 app.use(cors({
   origin: [
-    "https://crackit-interview.vercel.app", // Your Production Frontend
+    "https://crackit-interview.vercel.app", // Old Production Frontend
+    "https://client-one-tau-42.vercel.app", // New Production Frontend
     "http://localhost:5173",                // Your Local Development
     "http://localhost:3000"                 // Optional: fallback local port
   ],
